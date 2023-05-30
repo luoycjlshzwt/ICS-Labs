@@ -1,0 +1,314 @@
+/*
+ * mm-naive.c - The fastest, least memory-efficient malloc package.
+ *
+ * In this naive approach, a block is allocated by simply incrementing
+ * the brk pointer.  A block is pure payload. There are no headers or
+ * footers.  Blocks are never coalesced or reused. Realloc is
+ * implemented directly using mm_malloc and mm_free.
+ *
+ * NOTE TO STUDENTS: Replace this header comment with your own header
+ * comment that gives a high level description of your solution.
+ */
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "memlib.h"
+#include "mm.h"
+
+/*********************************************************
+ * NOTE TO STUDENTS: Before you do anything else, please
+ * provide your team information in the following struct.
+ ********************************************************/
+team_t team = {
+    /* Team name */
+    "ateam",
+    /* First member's full name */
+    "luona",
+    /* First member's email address */
+    "2021xxxxxx@ruc.edu.cn",
+    /* Second member's full name (leave blank if none) */
+    "",
+    /* Second member's email address (leave blank if none) */
+    ""};
+
+/* single word (4) or double word (8) alignment */
+#define ALIGNMENT 8
+
+/* rounds up to the nearest multiple of ALIGNMENT */
+#define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
+
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+
+#define SETPRE(p, p1) (*(unsigned long*)((char*)(p)) = (unsigned long)(p1))
+#define SETSUC(p, p1) (*(unsigned long*)((char*)(p) + 8) = (unsigned long)(p1))
+#define GETSIZE(p) ((*(unsigned int*)(p)) & (~0x7))
+#define HEADER(p) ((char*)(p) - 4)
+#define FOOTER(p) ((char*)(p) + GETSIZE(HEADER(p)) - 8)
+
+char* listhead;
+char* listfoot;
+
+/*
+void * mem_sbrk(int incr); // 使堆增加incr字节，返回新分配堆区域的第⼀个字节地址
+void * mem_heap_lo(void); // 返回堆的第⼀个字节地址
+void * mem_heap_hi(void); // 返回堆的最后字节地址
+size_t mem_heapsize(void); // 返回当前堆的⼤⼩
+size_t mem_pagesize(void); // 返回系统的Page⼤⼩，Linux上为4096
+*/
+
+void* merge(void* ptr) {
+    void* prep = (char*)(ptr) - GETSIZE(((char*)(ptr) - 8));
+    void* nexp = (char*)(ptr) + GETSIZE(((char*)(ptr) - 4));
+    size_t pre = (*(unsigned int*)(FOOTER(prep))) & (0x1);
+    size_t nex = (*(unsigned int*)(HEADER(nexp))) & (0x1);
+    if (pre && nex)
+        return ptr;
+    else if(!pre && !nex) {
+        size_t size = GETSIZE(HEADER(ptr)) + GETSIZE(HEADER(prep)) + GETSIZE(FOOTER(nexp));
+        SETSUC(prep, (char*)(*(unsigned long*)(nexp + 8)));
+        SETPRE((char*)(*(unsigned long*)(nexp + 8)), prep);
+        *(unsigned int*)(HEADER(prep)) = (size | 0);
+        *(unsigned int*)(FOOTER(nexp)) = (size | 0);
+        ptr = prep;
+    } else if (!pre && nex) {
+        size_t size = GETSIZE(HEADER(ptr)) + GETSIZE(FOOTER(prep));
+        SETSUC(prep, (char*)(*(unsigned long*)(ptr + 8)));
+        SETPRE((char*)(*(unsigned long*)(ptr + 8)), prep);
+        *(unsigned int*)(HEADER(prep)) = (size | 0);
+        *(unsigned int*)(FOOTER(ptr)) = (size | 0);
+        ptr = prep;
+    } else {
+        size_t size = GETSIZE(HEADER(ptr)) + GETSIZE(HEADER(nexp));
+        SETSUC(ptr, (char*)(*(unsigned long*)(nexp + 8)));
+        SETPRE((char*)(*(unsigned long*)(nexp + 8)), ptr);
+        *(unsigned int*)(HEADER(ptr)) = (size | 0);
+        *(unsigned int*)(FOOTER(nexp)) = (size | 0);
+    }
+    return ptr;
+}
+
+void* extend(size_t a) {
+    char* p = listfoot;
+    size_t size = a * 4;
+    if(a % 2)
+        size += 4;
+    if ((long)(mem_sbrk(size)) == -1)
+        return NULL;
+    *(unsigned int*)(HEADER(p)) = (size | 0);
+    *(unsigned int*)(FOOTER(p)) = (size | 0);
+    listfoot = (char*)(p) + GETSIZE(((char*)(p) - 4));
+    SETSUC(p, listfoot); 
+    *(unsigned int*)(HEADER(listfoot)) = 1;
+    SETPRE(listfoot, p);
+    *(unsigned int*)(listfoot + 8) = 0;
+    return merge(p);
+}
+
+void* searchfit(size_t a) {
+    // void* b = NULL;
+    // size_t tem = ~0x0;
+    // for (void* p = (char*)(*(unsigned long*)(listhead + 8)); p != listfoot; p = (char*)(*(unsigned long*)(p + 8))) {
+    //     if (a <= GETSIZE(HEADER(p)) && tem > GETSIZE(HEADER(p))) {
+    //         b = p;
+    //         tem = GETSIZE(HEADER(p));
+    //     }
+    // }
+    // return b;
+    for (void* p = (char*)(*(unsigned long*)(listhead + 8)); p != listfoot; p = (char*)(*(unsigned long*)(p + 8))) {
+        if (a <= GETSIZE(HEADER(p)))
+            return p;
+    }
+    return NULL;
+}
+
+void Inse(void* b, size_t a) {
+    size_t size = GETSIZE(HEADER(b));
+    if (size - a >= 24) {
+        *(unsigned int*)(HEADER(b)) = (a | 1);
+        *(unsigned int*)(FOOTER(b)) = (a | 1);
+        void* p = (char*)(b) + GETSIZE(((char*)(b) - 4));
+        SETSUC(p, (char*)(*(unsigned long*)(b + 8)));
+        SETPRE(p, (char*)(*(unsigned long*)(b)));
+        SETSUC((char*)(*(unsigned long*)(p)), p);
+        SETPRE((char*)(*(unsigned long*)(p + 8)), p);
+        *(unsigned int*)(HEADER(p)) = ((size - a) | 0);
+        *(unsigned int*)(FOOTER(p)) = ((size - a) | 0);
+    } else {
+        *(unsigned int*)(HEADER(b)) = (size | 1);
+        *(unsigned int*)(FOOTER(b)) = (size | 1);
+        SETSUC((char*)(*(unsigned long*)(b)), (char*)(*(unsigned long*)(b + 8)));
+        SETPRE((char*)(*(unsigned long*)(b + 8)), (char*)(*(unsigned long*)(b)));
+    }
+}
+
+/*
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void) {
+    if ((listhead = mem_sbrk(40)) == (void*)-1)
+        return -1;
+    *(unsigned int*)(listhead) = 0;
+    *(unsigned int*)(listhead + 4) = 25;
+    listhead += 8;
+    listfoot = (char*)(listhead) + GETSIZE(((char*)(listhead) - 4));
+    SETPRE(listhead, NULL);
+    SETSUC(listhead, listfoot); 
+    *(unsigned int*)(listhead + 16) = 25;
+    *(unsigned int*)(HEADER(listfoot)) = 1;
+    SETPRE(listfoot, listhead);
+    *(unsigned int*)(listfoot + 8) = 0;
+    if (!extend(1024))
+        return -1;
+    return 0;
+}
+
+/*
+ * mm_malloc - Allocate a block by incrementing the brk pointer.
+ *     Always allocate a block whose size is a multiple of the alignment.
+ */
+void* mm_malloc(size_t size) {
+    // int newsize = ALIGN(size + SIZE_T_SIZE);
+    // void *p = mem_sbrk(newsize);
+    // if (p == (void *)-1)
+    //     return NULL;
+    // else {
+    //     *(size_t *)p = size;
+    //     return (void *)((char *)p + SIZE_T_SIZE);
+    // }
+    size_t a;
+    size_t extendsiz;
+    if (!size)
+        return NULL;
+    if (size <= 16)
+        a = 24;
+    else
+        a = ((size + 15) >> 3) << 3;
+    char* p = searchfit(a);
+    if (p) {
+        Inse(p, a);
+        return p;
+    }
+    extendsiz = a > 4096 ? a : 4096;
+    p = extend(extendsiz / 4);
+    if (!p)
+        return NULL;
+    Inse(p, a);
+    return p;
+}
+
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+void mm_free(void* ptr) {
+    size_t size = GETSIZE(HEADER(ptr));
+    for (char* p = (char*)(*(unsigned long*)(listhead + 8));; p = (char*)(*(unsigned long*)(p + 8))) {
+        if (ptr < (void*)p) { 
+            *(unsigned int*)(HEADER(ptr)) = (size | 0);
+            *(unsigned int*)(FOOTER(ptr)) = (size | 0);
+            SETSUC(ptr, p);
+            SETPRE(ptr, (char*)(*(unsigned long*)(p)));
+            SETSUC((char*)(*(unsigned long*)(p)), ptr);
+            SETPRE(p, ptr);
+            break;
+        }
+    }
+    merge(ptr);
+}
+
+/*
+ * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ */
+void* mm_realloc(void* ptr, size_t size) {
+    // void* oldptr = ptr;
+    // void* newptr;
+    // size_t copySize;
+
+    // newptr = mm_malloc(size);
+    // if (newptr == NULL)
+    //     return NULL;
+    // copySize = *(size_t*)((char*)oldptr - SIZE_T_SIZE);
+    // if (size < copySize)
+    //     copySize = size;
+    // memcpy(newptr, oldptr, copySize);
+    // mm_free(oldptr);
+    // return newptr;
+    size_t a;
+    size_t b = GETSIZE(HEADER(ptr));
+    void* nexp;
+    void* pre;
+    void* suc;
+    if (!ptr)
+        return mm_malloc(size);
+    else if (!size) {
+        mm_free(ptr);
+        return NULL;
+    }
+    if (size <= 16)
+        a = 24;
+    else
+        a = ((size + 15) >> 3) << 3;
+    if (a == b)
+        return ptr;
+    else if (a > b) {
+        nexp = (char*)(ptr) + GETSIZE(((char*)(ptr) - 4));
+        size_t siz = GETSIZE(HEADER(nexp)) + b;
+        if (!((*(unsigned int*)(HEADER(nexp))) & (0x1)) && siz >= a) { 
+            pre = (char*)(*(unsigned long*)(nexp));
+            suc = (char*)(*(unsigned long*)(nexp + 8));
+            if (siz - a >= 24) {
+                *(unsigned int*)(HEADER(ptr)) = (a | 1);
+                *(unsigned int*)(FOOTER(ptr)) = (a | 1);
+                nexp = (char*)(ptr) + GETSIZE(((char*)(ptr) - 4));
+                *(unsigned int*)(HEADER(nexp)) = ((siz - a) | 0);
+                *(unsigned int*)(FOOTER(nexp)) = ((siz - a) | 0);
+                SETPRE(nexp, pre);
+                SETSUC(nexp, suc);
+                SETSUC(pre, nexp);
+                SETPRE(suc, nexp);
+            } else {
+                *(unsigned int*)(HEADER(ptr)) = (siz | 1);
+                *(unsigned int*)(FOOTER(ptr)) = (siz | 1);
+                SETSUC(pre, suc);
+                SETPRE(suc, pre);
+            }
+            return ptr;
+        } else { 
+            void* ap = searchfit(a);
+            void* oldp = ptr;
+            if (!ap) {
+                size_t extendsiz = a > 4096 ? a : 4096;
+                ap = extend(extendsiz / 4);
+                if (!ap)
+                    return NULL;
+            }
+            Inse(ap, a);
+            memcpy(ap, oldp, b - 8);
+            mm_free(oldp);
+            return ap;
+        }
+    } else {
+        if (b - a >= 24) {
+            *(unsigned int*)(HEADER(ptr)) = (a | 1);
+            *(unsigned int*)(FOOTER(ptr)) = (a | 1);
+            nexp = (char*)(ptr) + GETSIZE(((char*)(ptr) - 4));
+            *(unsigned int*)(HEADER(nexp)) = ((b - a) | 0);
+            *(unsigned int*)(FOOTER(nexp)) = ((b - a) | 0);
+            for (char* p = (char*)(*(unsigned long*)(listhead + 8));; p = (char*)(*(unsigned long*)(p + 8))) {
+                if (nexp < (void*)p) {
+                    pre = (char*)(*(unsigned long*)(p));
+                    suc = p;
+                    SETPRE(nexp, pre);
+                    SETSUC(nexp, suc);
+                    SETSUC(pre, nexp);
+                    SETPRE(p, nexp);
+                    break;
+                }
+            }
+        }
+        return ptr;
+    }
+}
