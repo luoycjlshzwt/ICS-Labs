@@ -1,0 +1,134 @@
+#include <bits/stdc++.h>
+#include "policy.h"
+
+/*
+struct Event {
+  enum class Type {
+    //时钟中断，新任务来，任务完成，请求IO，IO结束
+      kTimer, kTaskArrival, kTaskFinish, kIoRequest, kIoEnd
+  };
+  struct Task {
+    enum class Priority { kHigh, kLow };
+
+    int arrivalTime; // 任务到达时间
+    int deadline;  // 任务完成截止时间
+    Priority priority;  // 优先级
+    int taskId;  // ID
+  };
+
+  Type type;  // 事件类型
+  int time;  // 任务时间
+  Task task;  // 任务信息
+};
+
+struct Action {
+  // CPU、IO 资源接下来分别服务任务的任务 ID
+  int cpuTask, ioTask;
+};
+
+Action policy(const std::vector<Event>& events, int currentCpuTask,
+              int currentIoTask);
+*/
+
+using namespace std;
+
+struct Key {
+    int Ddl;
+    int Arvt;
+    Key(int a, int b) : Ddl(a), Arvt(b) {}
+    bool operator<(const Key& k) const {
+        return Ddl - 0.83*Arvt < k.Ddl - 0.83*k.Arvt;
+    }
+};
+
+map<struct Key, int> cpul;
+map<struct Key, int> iol;
+
+int maxr(int a, int b) {
+    return a > b ? a : b;
+}
+
+Action policy(const std::vector<Event>& events,
+              int current_cpu,
+              int current_io) {
+    Action res;
+    res.cpuTask = current_cpu;
+    res.ioTask = current_io;
+    int ddl = -1;
+    int tim = -1;
+    for (auto e : events) {
+        int id = e.task.taskId;
+        Key key1(e.task.deadline, e.task.arrivalTime);
+        switch (e.type) {
+            case (Event::Type::kTimer): {
+                ddl = e.time;
+                break;
+            }
+            case (Event::Type::kTaskArrival): {
+                cpul.insert(make_pair(key1, id));
+                break;
+            }
+            case (Event::Type::kTaskFinish): {
+                for (map<struct Key, int>::iterator iter = cpul.begin();
+                     iter != cpul.end();) {
+                    if (iter->second == id) {
+                        iter = cpul.erase(iter);
+                        break;
+                    }else{
+                      iter++;
+                    }
+                }
+                break;
+            }
+            case (Event::Type::kIoRequest): {
+                for (map<struct Key, int>::iterator iter = cpul.begin();
+                     iter != cpul.end();) {
+                    if (iter->second == id) {
+                        iter = cpul.erase(iter);
+                        break;
+                    }else{
+                      iter++;
+                    }
+                }
+                iol.insert(make_pair(key1, id));
+                break;
+            }
+            case (Event::Type::kIoEnd): {
+                for (map<struct Key, int>::iterator iter = iol.begin();
+                     iter != iol.end();) {
+                    if (iter->second == id) {
+                        iter=iol.erase(iter);
+                        break;
+                    }else{
+                      iter++;
+                    }
+                }
+                cpul.insert(make_pair(key1, id));
+                break;
+            }
+        }
+        tim = maxr(maxr(tim, e.time), e.task.arrivalTime);
+    }
+
+    if (!current_io && !iol.empty()) {
+        map<struct Key, int>::iterator iot;
+        for (iot = iol.begin(); iot != iol.end(); iot++) {
+            if (iot->first.Ddl > ddl)
+                break;
+        }
+        if (iot == iol.end())
+            iot = iol.begin();
+        res.ioTask = iot->second;
+    }
+
+    map<struct Key, int>::iterator cput;
+    for (cput = cpul.begin(); cput != cpul.end(); cput++) {
+        if (cput->first.Ddl > ddl)
+            break;
+    }
+    if (cput == cpul.end())
+        cput = cpul.begin();
+    res.cpuTask = cput->second;
+
+    return res;
+}
