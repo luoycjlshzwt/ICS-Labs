@@ -1,0 +1,310 @@
+/*
+PART A
+*/
+#include <getopt.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "cachelab.h"
+
+int hits;
+int misses;
+int evictions;
+int cou;  // 记录时间或操作次数
+int s, E, b;
+
+struct CacheLine {
+    int validbit;   // 有效位
+    int tagbits;    // 标记
+    int timestamp;  // 为了方便用LRU策略进行替换（驱逐）
+} cache[32][32];
+
+void ShowHelpMenu() {
+    printf(
+        "Usage: ./csim-ref [-hv] -s <num> -E <num> -b <num> -t <tracefile>\n");
+    printf(
+        "Options:\n\
+            -h: Optional help flag\n\
+            -v: Optional verbose flag that displays trace info\n\
+            -s <s>: Number of set index bits(S = 2s is the number of set)\n\
+            -E <E>: Associtivity (number of lines per set)\n\
+            -b <b>: Number of block bits (B = 2b is the block size)\n\
+            -t <tracefile>: Name of the valgrind trace to repla\n");
+    printf(
+        "Examples:\n\
+            linux> ./csim -s 4 -E 1 -b 4 -t traces/yi.trace\n\
+            linux> ./csim -v -s 8 -E 2 -b 4 -t traces/yi.trace\n");
+    return;
+}
+
+void GetOpt(int argc, char* argv[]) {
+    char opt;
+    while (-1 != (opt = getopt(argc, argv, "hvs:E:b:t:"))) {
+        switch (opt) {
+            case 'h':
+                ShowHelpMenu();
+                break;
+            case 'v':
+                printf("Show step!\n");
+                break;
+            case 's':
+                s = atoi(optarg);
+                break;
+            case 'E':
+                E = atoi(optarg);
+                break;
+            case 'b':
+                b = atoi(optarg);
+                break;
+            case 't':
+                freopen(optarg, "r", stdin);
+                break;
+            default:
+                break;
+        }
+    }
+    return;
+}
+
+void misshit(long long address) {
+    cou++;
+    int tag = (int)(address >> (b + s));
+    int setind = (int)(address >> b);
+    int temp = (1 << s) - 1;
+    setind &= temp;
+    printf("%d %d  ", tag, setind);
+    temp = 0;
+    for (int i = 0; i < E; i++) {
+        if ((cache[setind][i].tagbits) == tag &&
+            (cache[setind][i].validbit)) {  // 命中
+            hits++;
+            printf("hit\n");
+            cache[setind][i].timestamp = cou;
+            return;
+        }
+    }
+    misses++;
+    for (int i = 0; i < E; i++) {
+        if (!cache[setind][i].validbit) {  // 不命中
+            printf("miss\n");
+            cache[setind][i].validbit = 1;
+            cache[setind][i].tagbits = tag;
+            cache[setind][i].timestamp = cou;
+            return;
+        }
+    }
+    evictions++;
+    for (int i = 1; i < E; i++) {
+        if (cache[setind][i].timestamp < cache[setind][temp].timestamp)  // 驱逐
+            temp = i;
+    }
+    printf("evict\n");
+    cache[setind][temp].tagbits = tag;
+    cache[setind][temp].timestamp = cou;
+    return;
+}
+
+void ReadAndTest() {
+    char instr[3];
+    long long address;
+    int bsiz;
+    while (~scanf("%s %llx,%d", instr, &address, &bsiz)) {
+        switch (instr[0]) {
+            case 'I':
+                break;
+            case 'M':  // L+S
+                misshit(address);
+                misshit(address);
+                printf("M %llx,%d\n", address, bsiz);
+                break;
+            case 'L':
+                misshit(address);
+                printf("L %llx,%d\n", address, bsiz);
+                break;
+            case 'S':
+                misshit(address);
+                printf("S %llx,%d\n", address, bsiz);
+                break;
+        }
+    }
+    return;
+}
+
+int main(int argc, char* argv[]) {
+    memset(cache, 0, sizeof(cache));  // 初始化
+    GetOpt(argc, argv);
+    ReadAndTest();
+    printSummary(hits, misses, evictions);
+    return 0;
+}
+
+
+
+
+/*
+PART B
+*/
+/*
+ * trans.c - Matrix transpose B = A^T
+ *
+ * Each transpose function must have a prototype of the form:
+ * void trans(int M, int N, int A[N][M], int B[M][N]);
+ *
+ * A transpose function is evaluated by counting the number of misses
+ * on a 1KB direct mapped cache with a block size of 32 bytes.
+ */
+#include <stdio.h>
+#include "cachelab.h"
+
+int is_transpose(int M, int N, int A[N][M], int B[M][N]);
+
+/*
+ * transpose_submit - This is the solution transpose function that you
+ *     will be graded on for Part B of the assignment. Do not change
+ *     the description string "Transpose submission", as the driver
+ *     searches for that string to identify the transpose function to
+ *     be graded.
+ */
+char transpose_submit_desc[] = "Transpose submission";
+void transpose_submit(int M, int N, int A[N][M], int B[M][N]) {
+    int i, j, k, l;
+    int tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8;
+    if (M == 32 && N == 32) {
+        for (i = 0; i < 32; i += 8) {
+            for (j = 0; j < 32; j++) {
+                tmp1 = A[j][i];
+                tmp2 = A[j][i + 1];
+                tmp3 = A[j][i + 2];
+                tmp4 = A[j][i + 3];
+                tmp5 = A[j][i + 4];
+                tmp6 = A[j][i + 5];
+                tmp7 = A[j][i + 6];
+                tmp8 = A[j][i + 7];
+                B[i][j] = tmp1;
+                B[i + 1][j] = tmp2;
+                B[i + 2][j] = tmp3;
+                B[i + 3][j] = tmp4;
+                B[i + 4][j] = tmp5;
+                B[i + 5][j] = tmp6;
+                B[i + 6][j] = tmp7;
+                B[i + 7][j] = tmp8;
+            }
+        }
+    } else if (M == 64 && N == 64) {
+        for (i = 0; i < 64; i += 8) {
+            for (j = 0; j < 64; j += 8) {
+                for (k = i; k < i + 4; k++) {
+                    tmp1 = A[k][j];
+                    tmp2 = A[k][j + 1];
+                    tmp3 = A[k][j + 2];
+                    tmp4 = A[k][j + 3];
+                    tmp5 = A[k][j + 4];
+                    tmp6 = A[k][j + 5];
+                    tmp7 = A[k][j + 6];
+                    tmp8 = A[k][j + 7];
+                    B[j][k] = tmp1;
+                    B[j + 1][k] = tmp2;
+                    B[j + 2][k] = tmp3;
+                    B[j + 3][k] = tmp4;
+                    B[j][k + 4] = tmp5;
+                    B[j + 1][k + 4] = tmp6;
+                    B[j + 2][k + 4] = tmp7;
+                    B[j + 3][k + 4] = tmp8;
+                }
+                for (l = j; l < j + 4; l++) {
+                    tmp1 = A[i + 4][l];
+                    tmp2 = A[i + 5][l];
+                    tmp3 = A[i + 6][l];
+                    tmp4 = A[i + 7][l];
+                    tmp5 = B[l][i + 4];
+                    tmp6 = B[l][i + 5];
+                    tmp7 = B[l][i + 6];
+                    tmp8 = B[l][i + 7];
+                    B[l][i + 4] = tmp1;
+                    B[l][i + 5] = tmp2;
+                    B[l][i + 6] = tmp3;
+                    B[l][i + 7] = tmp4;
+                    B[l + 4][i] = tmp5;
+                    B[l + 4][i + 1] = tmp6;
+                    B[l + 4][i + 2] = tmp7;
+                    B[l + 4][i + 3] = tmp8;
+                }
+                for (k = i + 4; k < i + 8; k++) {
+                    tmp1 = A[k][j + 4];
+                    tmp2 = A[k][j + 5];
+                    tmp3 = A[k][j + 6];
+                    tmp4 = A[k][j + 7];
+                    B[j + 4][k] = tmp1;
+                    B[j + 5][k] = tmp2;
+                    B[j + 6][k] = tmp3;
+                    B[j + 7][k] = tmp4;
+                }
+            }
+        }
+    } else if (M == 61 && N == 67) {
+        for (i = 0; i < N; i += 17) {
+            for (j = 0; j < M; j += 17) {
+                for (k = i; k < N && k < i + 17; k++) {
+                    for (l = j; l < M && l < j + 17; l++) {
+                        B[l][k] = A[k][l];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/*
+ * You can define additional transpose functions below. We've defined
+ * a simple one below to help you get started.
+ */
+
+/*
+ * trans - A simple baseline transpose function, not optimized for the cache.
+ */
+char trans_desc[] = "Simple row-wise scan transpose";
+void trans(int M, int N, int A[N][M], int B[M][N]) {
+    int i, j, tmp;
+
+    for (i = 0; i < N; i++) {
+        for (j = 0; j < M; j++) {
+            tmp = A[i][j];
+            B[j][i] = tmp;
+        }
+    }
+}
+
+/*
+ * registerFunctions - This function registers your transpose
+ *     functions with the driver.  At runtime, the driver will
+ *     evaluate each of the registered functions and summarize their
+ *     performance. This is a handy way to experiment with different
+ *     transpose strategies.
+ */
+void registerFunctions() {
+    /* Register your solution function */
+    registerTransFunction(transpose_submit, transpose_submit_desc);
+
+    /* Register any additional transpose functions */
+    registerTransFunction(trans, trans_desc);
+}
+
+/*
+ * is_transpose - This helper function checks if B is the transpose of
+ *     A. You can check the correctness of your transpose by calling
+ *     it before returning from the transpose function.
+ */
+int is_transpose(int M, int N, int A[N][M], int B[M][N]) {
+    int i, j;
+
+    for (i = 0; i < N; i++) {
+        for (j = 0; j < M; ++j) {
+            if (A[i][j] != B[j][i]) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
